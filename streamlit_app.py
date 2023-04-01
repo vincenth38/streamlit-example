@@ -1,10 +1,9 @@
 import streamlit as st
+import pandas as pd
 import json
 import os
-import functools
 
 # Define table headers and component types
-table_headers = ['Component', 'Parameter 1', 'Parameter 2', 'Parameter 3', 'Parameter 4', 'Pressure Drop', 'Outlet Pressure']
 components = ['pipe', 'valve']
 
 # Define input fields
@@ -13,78 +12,79 @@ inlet_pressure = st.number_input('Inlet Pressure (bar):', value=100.0)
 inlet_temperature = st.number_input('Inlet Temperature (C):', value=25.0)
 mass_flow = st.number_input('Mass Flow (kg/s):', value=1.0)
 
-table_data = []
-
-
-def save_data_to_file(table_data):
-    with open("table_data.json", "w") as outfile:
-        json.dump(table_data, outfile)
-
-
-def load_data_from_file():
+def load_data():
     if os.path.exists("table_data.json"):
         with open("table_data.json", "r") as infile:
-            return json.load(infile)
-    return []
+            data = json.load(infile)
+            return pd.DataFrame(data)
+    else:
+        data = {
+            "Component": [],
+            "Parameter 1": [],
+            "Parameter 2": [],
+            "Parameter 3": [],
+            "Parameter 4": [],
+            "Pressure Drop": [],
+            "Outlet Pressure": [],
+        }
+        return pd.DataFrame(data)
 
+def save_data(df):
+    with open("table_data.json", "w") as outfile:
+        json.dump(df.to_dict(orient='records'), outfile)
 
-# Calculate pressure drop for each component
-def calculate_pressure_drop(component_type, param1, param2, param3, param4):
+def calculate_pressure_drop(row):
+    component_type, param1, param2, param3, param4 = row["Component"], row["Parameter 1"], row["Parameter 2"], row["Parameter 3"], row["Parameter 4"]
+    
     if component_type == 'pipe':
-        # Calculate pressure drop for a pipe (using a dummy calculation)
         pressure_drop = param1 * param2 * param3 * param4 * 0.01
     elif component_type == 'valve':
-        # Calculate pressure drop for a valve (using a dummy calculation)
         pressure_drop = param1 * param2 * param3 * param4 * 0.005
     else:
         pressure_drop = 0
-
+        
     return pressure_drop
 
+def calculate_outlet_pressure(row):
+    return inlet_pressure - row["Pressure Drop"]
 
-def add_row():
-    row = [components[0]] + [0.0] * 6
-    table_data.append(row)
-    update_table()
+def update_table(df):
+    df["Pressure Drop"] = df.apply(calculate_pressure_drop, axis=1)
+    df["Outlet Pressure"] = df.apply(calculate_outlet_pressure, axis=1)
 
+    return df
 
-def update_table():
-    table = st.empty()
+# Load the data
+df = load_data()
 
-    # Render table
-    table.write(table_data, header=table_headers)
+# Display the data
+st.write(df)
 
-    # Render button to add a row
-    if st.button("Add Row"):
-        add_row()
+# Add row
+if st.button("Add Row"):
+    new_row = {
+        "Component": "pipe",
+        "Parameter 1": 0.0,
+        "Parameter 2": 0.0,
+        "Parameter 3": 0.0,
+        "Parameter 4": 0.0,
+        "Pressure Drop": 0.0,
+        "Outlet Pressure": inlet_pressure,
+    }
+    df = df.append(new_row, ignore_index=True)
 
-    # Render action buttons
-    for i, row_data in enumerate(table_data):
-        with st.container():
-            # Component type dropdown
-            component_type = st.selectbox('Component Type', components, index=components.index(row_data[0]), key=f"component_type_{i}")
+# Update table with user input
+for index, row in df.iterrows():
+    with st.container():
+        component = st.selectbox("Component", components, index=components.index(row["Component"]), key=f"component_{index}")
+        df.at[index, "Component"] = component
 
-            # Update the component type in the table data
-            table_data[i][0] = component_type
+        for i in range(1, 5):
+            value = st.number_input(f"Parameter {i}", value=row[f"Parameter {i}"], key=f"param_{index}_{i}")
+            df.at[index, f"Parameter {i}"] = value
 
-            # Parameter inputs
-            for j in range(1, 5):
-                table_data[i][j] = st.number_input(f"Parameter {j}", value=row_data[j], key=f"parameter_{i}_{j}")
+# Recalculate and display updated data
+df = update_table(df)
 
-            # Calculate pressure drop and outlet pressure
-            pressure_drop = calculate_pressure_drop(*row_data[:5])
-            outlet_pressure = inlet_pressure - pressure_drop
-
-            # Update the pressure drop and outlet pressure in the table data
-            table_data[i][5] = pressure_drop
-            table_data[i][6] = outlet_pressure
-
-            # Display the pressure drop and outlet pressure
-            st.write(f"Pressure Drop: {pressure_drop:.2f}")
-            st.write(f"Outlet Pressure: {outlet_pressure:.2f}")
-
-    save_data_to_file(table_data)
-
-
-table_data = load_data_from_file()
-update_table()
+# Save the data
+save_data(df)
